@@ -1,0 +1,180 @@
+// pio pkg install # Install dependencies
+// pio run # Build the firmware
+// pio run --target upload # Flash the firmware
+// pio run --target clean_microros  # Clean library
+
+/* How to run
+* first start docker container with micro-ROS agent:
+* docker run -it --rm -v /dev:/dev -v /dev/shm:/dev/shm --privileged --net=host microros/micro-ros-agent:$ROS_DISTRO udp4 --port 8888 -v6
+* then run this example on Arduino
+* Ethernet addresses/ports:
+* IP arduino: 192.168.1.177
+* IP agent: 192.168.1.113
+* Port: 8888
+* 
+* ros2 topic pub /teensy_hub/subscribe_topic std_msgs/msg/Int32 "{data: 10}"
+* ros2 topic pub /teensy_hub/subscribe_topic soro_msgs/msg/ServoCommands "{servo_micros: [1501, 1502, 1503, 1504, 1505, 1506, 1507, 1508, 1509, 1510, 1511, 1512]}"
+*
+* ros2 topic echo /teensy_hub/servo_pos_set
+* ros2 topic pub /teensy_hub/servo_pos soro_msgs/msg/ServoCommands "{servo_micros: [1501, 1502, 1503, 1504, 1505, 1506, 1507, 1508, 1509, 1510, 1511, 1512]}"
+*/
+
+#include <micro_ros_platformio.h>
+
+#include <stdio.h>
+#include <rcl/rcl.h>
+#include <rcl/error_handling.h>
+#include <rclc/rclc.h>
+#include <rclc/executor.h>
+#include <std_msgs/msg/int16.h>
+#include <std_msgs/msg/int32.h>
+#include <std_msgs/msg/int64.h>
+#include <soro_msgs/msg/servo_commands.h>
+#include "servo_control.h"
+#include "servo_cfg.h"
+
+#if !defined(ARDUINO_TEENSY41)
+  #error This code only runs on Arduino Teensy41
+#endif
+
+// Pin configuration
+constexpr uint16_t PIN_LED = 13;
+
+// micro-ROS configuration
+rcl_publisher_t publisher;
+rcl_subscription_t subscriber;
+soro_msgs__msg__ServoCommands current_servo_pos_msg;
+soro_msgs__msg__ServoCommands incoming_msg;
+rclc_support_t support;
+rcl_allocator_t allocator;
+rcl_node_t node;
+rclc_executor_t executor;
+
+#define RCCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){error_loop();}}
+#define RCSOFTCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){}}
+
+#if defined(ARDUINO_TEENSY41)
+void get_teensy_mac(uint8_t *mac) {
+    for(uint8_t by=0; by<2; by++) mac[by]=(HW_OCOTP_MAC1 >> ((1-by)*8)) & 0xFF;
+    for(uint8_t by=0; by<4; by++) mac[by+2]=(HW_OCOTP_MAC0 >> ((3-by)*8)) & 0xFF;
+}
+#endif
+
+void error_loop(){
+  while(1){
+    digitalWrite(PIN_LED, !digitalRead(PIN_LED));
+    delay(100);
+  }
+}
+
+/**
+ * @brief Publish the servo positions currently set in the servo library to the "servo_pos_set" topic.
+ * Note: This is the position sent to the servos via PWM, not neccessarily the actual position of the servos.
+ * 
+ * @param publish_interval_ms The interval in milliseconds at which the servo positions are published.
+ * 
+ * This function is called in the main loop to periodically publish the current servo positions.
+ * It retrieves the current servo positions from the ServoControl objects and publishes them to the "servo_pos_set" topic.
+ * The function uses a static variable to keep track of the last time it was called, ensuring that it only publishes at the specified interval.
+ */
+void publish_current_servo_positions(uint32_t publish_interval_ms = 1000) {
+  static uint32_t last_call_ms = 0;
+  if (millis() - last_call_ms > publish_interval_ms) {
+    last_call_ms = millis();
+
+    for (int i = 0; i < NUM_MOTORS; i++) {
+      current_servo_pos_msg.servo_micros[i] = motors[i].get_servo_pulse_length_set(); // Get the pulse length set for each servo
+    }
+    RCSOFTCHECK(rcl_publish(&publisher, &current_servo_pos_msg, NULL));
+  }
+}
+
+// Subscriber callback function
+void servo_command_subscription_callback(const void * msgin)
+{
+  const soro_msgs__msg__ServoCommands * msg_in = (const soro_msgs__msg__ServoCommands *)msgin;
+  
+  for (int i=0; i<NUM_MOTORS; i++){
+    motors[i].set_pulse_length(msg_in->servo_micros[i]); // Set servo pulse length based on received message
+  }
+}
+
+void setup() {
+  // setup ethernet connection
+   byte arduino_mac[] = { 0xAA, 0xBB, 0xCC, 0xEE, 0xDD, 0xFF };
+
+  #if defined(ARDUINO_TEENSY41)
+  get_teensy_mac(arduino_mac);
+  #endif
+
+  IPAddress arduino_ip(192, 168, 1, 177);
+  IPAddress agent_ip(192, 168, 1, 113);
+  size_t domain_id = 72;
+  set_microros_native_ethernet_transports(arduino_mac, arduino_ip, agent_ip, 8888);
+
+  pinMode(PIN_LED, OUTPUT);
+  digitalWrite(PIN_LED, HIGH);
+  Serial.begin(115200); // Initialize serial output for debug
+
+  // Servo init
+  for(uint8_t i = 0; i < NUM_MOTORS; i++) {
+    motors[i].set_pulse_length(CENTER_SERVO_US);
+  }
+
+
+  delay(2000);
+
+  allocator = rcl_get_default_allocator();
+
+  // create init_options
+  rcl_init_options_t init_options = rcl_get_zero_initialized_init_options();
+  RCCHECK(rcl_init_options_init(&init_options, allocator));
+
+  // Set ROS domain id
+  RCCHECK(rcl_init_options_set_domain_id(&init_options, domain_id));
+
+  // Setup support structure.
+  RCCHECK(rclc_support_init_with_options(&support, 0, NULL, &init_options, &allocator));
+
+  // RCCHECK(rclc_support_init(&support, 0, NULL, &allocator));
+
+
+  // create node
+  RCCHECK(rclc_node_init_default(&node, "micro_ros_arduino_ethernet_node", "teensy_hub", &support));
+
+  // create publisher
+  RCCHECK(rclc_publisher_init_best_effort(
+    &publisher,
+    &node,
+    ROSIDL_GET_MSG_TYPE_SUPPORT(soro_msgs, msg, ServoCommands),
+    "servo_pos_set"));
+  
+  // Initialize subscriber on topic "subscribe_topic"
+  RCCHECK(rclc_subscription_init_best_effort(
+    &subscriber,
+    &node,
+    // ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, incoming_msg, Int32),
+    ROSIDL_GET_MSG_TYPE_SUPPORT(soro_msgs, msg, ServoCommands),
+    "servo_pos"));
+  
+  // Initialize executor with 1 handle (subscriber)
+  RCCHECK(rclc_executor_init(&executor, &support.context, 1, &allocator));
+
+  // Add subscriber handle and callback to executor
+  RCCHECK(rclc_executor_add_subscription(
+    &executor,
+    &subscriber,
+    &incoming_msg,
+    &servo_command_subscription_callback,
+    ON_NEW_DATA));
+}
+
+void loop() {
+  // publish messages
+  publish_current_servo_positions();  
+  
+  // Spin executor to process incoming messages
+  rclc_executor_spin_some(&executor, RCL_MS_TO_NS(100));
+
+  delay(10);
+}
