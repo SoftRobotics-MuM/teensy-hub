@@ -17,6 +17,9 @@
 *
 * ros2 topic echo /teensy_hub/servo_pos_set
 * ros2 topic pub /teensy_hub/servo_pos soro_msgs/msg/ServoCommands "{servo_micros: [1501, 1502, 1503, 1504, 1505, 1506, 1507, 1508, 1509, 1510, 1511, 1512]}"
+* ros2 topic pub /teensy_hub/servo_pos soro_msgs/msg/ServoCommands "{servo_micros: [15100, 15200, 15300, 15400, 15500, 15600, 15700, 15800, 15900, 15100, 15110, 15120]}"
+*
+* ros2 run plotjuggler plotjuggler
 */
 
 #include <micro_ros_platformio.h>
@@ -97,6 +100,17 @@ void publish_current_servo_positions(uint32_t publish_interval_ms = 1000) {
   }
 }
 
+/**
+ * @brief Publish accelerometer data from the specified IMU to the given publisher.
+ * 
+ * @param publisher_imu The publisher to which the accelerometer data will be published.
+ * @param imu The IMU sensor from which to read the accelerometer and gyroscope data.
+ * @param imu_index The index of the IMU in the array (default is 0). (needed for publish rate limiting)
+ * 
+ * This function reads the accelerometer and gyroscope data from the specified IMU,
+ * fills a geometry_msgs__msg__Accel message with this data, and publishes it.
+ */
+// Note: The function limits the frequency of publishing to 100Hz by checking the time since the last call.
 void publish_accel_data(const rcl_publisher_t *publisher_imu, LSM6DSV16XSensor &imu, int imu_index = 0) {
   static uint32_t last_call_ms[NUM_IMU] = {0};
   if (millis() - last_call_ms[imu_index] < 10) {
