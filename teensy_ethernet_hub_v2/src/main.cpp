@@ -52,19 +52,29 @@ constexpr uint16_t PIN_LED = 13;
 // micro-ROS configuration
 rcl_publisher_t publisher;
 rcl_publisher_t publisher_IMU_1;
-// rcl_publisher_t publisher_IMU_2;
+rcl_publisher_t publisher_IMU_2;
+rcl_publisher_t publisher_IMU_3;
+rcl_publisher_t publisher_IMU_4;
 
 rcl_publisher_t publisher_mag_1;
-// rcl_publisher_t publisher_mag_2;
+rcl_publisher_t publisher_mag_2;
+rcl_publisher_t publisher_mag_3;
+rcl_publisher_t publisher_mag_4;
 
-rcl_publisher_t publisher_IMU_gravity_1;
+// rcl_publisher_t publisher_IMU_gravity_1;
 // rcl_publisher_t publisher_IMU_gravity_2;
+// rcl_publisher_t publisher_IMU_gravity_3;
+//rcl_publisher_t publisher_IMU_gravity_4;
 
-rcl_publisher_t publisher_IMU_gyrobias_1;
-// rcl_publisher_t publisher_IMU_gyrobias_2; 
+// rcl_publisher_t publisher_IMU_gyrobias_1;
+// rcl_publisher_t publisher_IMU_gyrobias_2;
+// rcl_publisher_t publisher_IMU_gyrobias_3;
+// rcl_publisher_t publisher_IMU_gyrobias_4;
 
-rcl_publisher_t publisher_IMU_rotation_1;
+// rcl_publisher_t publisher_IMU_rotation_1;
 // rcl_publisher_t publisher_IMU_rotation_2;
+// rcl_publisher_t publisher_IMU_rotation_3;
+// rcl_publisher_t publisher_IMU_rotation_4;
 
 rcl_subscription_t subscriber;
 soro_msgs__msg__ServoCommands current_servo_pos_msg;
@@ -75,11 +85,13 @@ rcl_node_t node;
 rclc_executor_t executor;
 
 // IMU
-const int NUM_IMU = 1; // Number of IMUs
-LSM6DSV16XSensor lsm6dsv16x_1(&Wire, LSM6DSV16X_I2C_ADD_L);
-// LSM6DSV16XSensor lsm6dsv16x_2(&Wire, LSM6DSV16X_I2C_ADD_H);
+const int NUM_IMU = 4; // Number of IMUs
+LSM6DSV16XSensor lsm6dsv16x_1(&Wire1, LSM6DSV16X_I2C_ADD_L);
+LSM6DSV16XSensor lsm6dsv16x_2(&Wire1, LSM6DSV16X_I2C_ADD_H);
+LSM6DSV16XSensor lsm6dsv16x_3(&Wire2, LSM6DSV16X_I2C_ADD_L);
+LSM6DSV16XSensor lsm6dsv16x_4(&Wire2, LSM6DSV16X_I2C_ADD_H);
 
-LSM6DSV16XSensor imus[NUM_IMU] = {lsm6dsv16x_1};
+LSM6DSV16XSensor imus[NUM_IMU] = {lsm6dsv16x_1, lsm6dsv16x_2, lsm6dsv16x_3, lsm6dsv16x_4};
 //LSM6DSV16XSensor imus[NUM_IMU] = {lsm6dsv16x_1, lsm6dsv16x_2};
 
 #if defined(ARDUINO_TEENSY41)
@@ -442,6 +454,12 @@ void setup() {
   Wire.begin();
   Wire.setClock(1000000);
 
+  Wire1.begin();
+  Wire1.setClock(1000000);
+
+  Wire2.begin();
+  Wire2.setClock(1000000);
+
   for (int i = 0; i < NUM_IMU; i++) {
     setup_LSM6DSV16X(imus[i]);
     delay(100);
@@ -482,11 +500,23 @@ void setup() {
     ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Accel),
     "imu_data_1"));
 
-  // RCCHECK(rclc_publisher_init_best_effort(
-  //  &publisher_IMU_2,
-  //  &node,
-  //  ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Accel),
-  //  "imu_data_2"));
+  RCCHECK(rclc_publisher_init_best_effort(
+   &publisher_IMU_2,
+   &node,
+   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Accel),
+   "imu_data_2"));
+  
+  RCCHECK(rclc_publisher_init_best_effort(
+    &publisher_IMU_3,
+    &node,
+    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Accel),
+    "imu_data_3"));
+  
+  RCCHECK(rclc_publisher_init_best_effort(
+   &publisher_IMU_4,
+   &node,
+   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Accel),
+   "imu_data_4"));
 
   // publishers for magnetometer
   RCCHECK(rclc_publisher_init_best_effort(
@@ -495,58 +525,106 @@ void setup() {
     ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
     "mag_data_1"));
   
-  // RCCHECK(rclc_publisher_init_best_effort(
-  //  &publisher_mag_2,
-  //  &node,
-  //  ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
-  //  "mag_data_2"));
-  
-  // publishers for gravity vector
   RCCHECK(rclc_publisher_init_best_effort(
-    &publisher_IMU_gravity_1,
+   &publisher_mag_2,
+   &node,
+   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
+   "mag_data_2"));
+  
+  RCCHECK(rclc_publisher_init_best_effort(
+    &publisher_mag_3,
     &node,
     ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
-    "imu_gravity_data_1"));
+    "mag_data_3"));
+
+  RCCHECK(rclc_publisher_init_best_effort(
+   &publisher_mag_4,
+   &node,
+   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
+   "mag_data_4"));
+
+  // publishers for gravity vector
+  // RCCHECK(rclc_publisher_init_best_effort(
+  //   &publisher_IMU_gravity_1,
+  //   &node,
+  //   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
+  //   "imu_gravity_data_1"));
   
-  //RCCHECK(rclc_publisher_init_best_effort(
+  // RCCHECK(rclc_publisher_init_best_effort(
   //  &publisher_IMU_gravity_2,
   //  &node,
   //  ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
   //  "imu_gravity_data_2"));
   
-  // publishers for game rotation vector
-  RCCHECK(rclc_publisher_init_best_effort(
-    &publisher_IMU_rotation_1,
-    &node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Quaternion),
-    "imu_rotation_data_1"));
+  // RCCHECK(rclc_publisher_init_best_effort(
+  //   &publisher_IMU_gravity_3,
+  //   &node,
+  //   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
+  //   "imu_gravity_data_3"));
   
-  //RCCHECK(rclc_publisher_init_best_effort(
-  //  &publisher_IMU_rotation_2,
-  //  &node,
-  //  ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Quaternion),
-  //  "imu_rotation_data_2"));
-
-  // publishers for gyroscope bias
-  RCCHECK(rclc_publisher_init_best_effort(
-    &publisher_IMU_gyrobias_1,
-    &node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
-    "imu_gyrobias_data_1"));
-  
-  //RCCHECK(rclc_publisher_init_best_effort(
-  //  &publisher_IMU_gyrobias_2,
+  // RCCHECK(rclc_publisher_init_best_effort(
+  //  &publisher_IMU_gravity_4,
   //  &node,
   //  ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
-  //  "imu_gyrobias_data_2")); 
+  //  "imu_gravity_data_4"));
+
+  // publishers for game rotation vector
+  // RCCHECK(rclc_publisher_init_best_effort(
+  //   &publisher_IMU_rotation_1,
+  //   &node,
+  //   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Quaternion),
+  //   "imu_rotation_data_1"));
+  
+  // RCCHECK(rclc_publisher_init_best_effort(
+  //   &publisher_IMU_rotation_2,
+  //   &node,
+  //   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Quaternion),
+  //   "imu_rotation_data_2"));
+  
+  // RCCHECK(rclc_publisher_init_best_effort(
+  //   &publisher_IMU_rotation_3,
+  //   &node,
+  //   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Quaternion),
+  //   "imu_rotation_data_3"));
+
+  // RCCHECK(rclc_publisher_init_best_effort(
+  //   &publisher_IMU_rotation_4,
+  //   &node,
+  //   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Quaternion),
+  //   "imu_rotation_data_4"));  
+
+  // publishers for gyroscope bias
+  // RCCHECK(rclc_publisher_init_best_effort(
+  //   &publisher_IMU_gyrobias_1,
+  //   &node,
+  //   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
+  //   "imu_gyrobias_data_1"));
+  
+  // RCCHECK(rclc_publisher_init_best_effort(
+  //   &publisher_IMU_gyrobias_2,
+  //   &node,
+  //   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
+  //   "imu_gyrobias_data_2")); 
+  
+  // RCCHECK(rclc_publisher_init_best_effort(
+  //   &publisher_IMU_gyrobias_3,
+  //   &node,
+  //   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
+  //   "imu_gyrobias_data_3"));
+  
+  // RCCHECK(rclc_publisher_init_best_effort(
+  //   &publisher_IMU_gyrobias_4,
+  //   &node,
+  //   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
+  //   "imu_gyrobias_data_4"));
 
   // Initialize subscriber on topic "subscribe_topic"
-  RCCHECK(rclc_subscription_init_best_effort(
-    &subscriber,
-    &node,
-    // ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, incoming_msg, Int32),
-    ROSIDL_GET_MSG_TYPE_SUPPORT(soro_msgs, msg, ServoCommands),
-    "servo_pos"));
+  // RCCHECK(rclc_subscription_init_best_effort(
+  //   &subscriber,
+  //   &node,
+  //   // ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, incoming_msg, Int32),
+  //   ROSIDL_GET_MSG_TYPE_SUPPORT(soro_msgs, msg, ServoCommands),
+  //   "servo_pos"));
   
   // Initialize executor with 1 handle (subscriber)
   RCCHECK(rclc_executor_init(&executor, &support.context, 1, &allocator));
@@ -563,13 +641,20 @@ void setup() {
 void loop() {
   // publish messages
   publish_current_servo_positions();
-  publish_accel_data(&publisher_IMU_1, lsm6dsv16x_1, 0);
-  //publish_accel_data(&publisher_IMU_2, lsm6dsv16x_2, 1);
+  publish_accel_data(&publisher_IMU_1, imus[0], 0);
+  publish_accel_data(&publisher_IMU_2, imus[1], 1);
+  publish_accel_data(&publisher_IMU_3, imus[2], 2);
+  publish_accel_data(&publisher_IMU_4, imus[3], 3);
 
-  publish_imu_game_rotation_vector_data(&publisher_IMU_rotation_1, &publisher_IMU_gravity_1, &publisher_IMU_gyrobias_1, lsm6dsv16x_1, 0);
+  // publish_imu_game_rotation_vector_data(&publisher_IMU_rotation_1, &publisher_IMU_gravity_1, &publisher_IMU_gyrobias_1, imus[0], 0);
+  //publish_imu_game_rotation_vector_data(&publisher_IMU_rotation_2, &publisher_IMU_gravity_2, &publisher_IMU_gyrobias_2, imus[1], 1);
+  //publish_imu_game_rotation_vector_data(&publisher_IMU_rotation_3, &publisher_IMU_gravity_3, &publisher_IMU_gyrobias_3, imus[2], 2);
+  //publish_imu_game_rotation_vector_data(&publisher_IMU_rotation_4, &publisher_IMU_gravity_4, &publisher_IMU_gyrobias_4, imus[3], 3);
 
-  publish_magnetometer_data(&publisher_mag_1, lsm6dsv16x_1);
-  //publish_magnetometer_data(&publisher_mag_2, lsm6dsv16x_2);
+  publish_magnetometer_data(&publisher_mag_1, imus[0], 0);
+  publish_magnetometer_data(&publisher_mag_2, imus[1], 1);
+  publish_magnetometer_data(&publisher_mag_3, imus[2], 2);
+  publish_magnetometer_data(&publisher_mag_4, imus[3], 3);
 
   // Spin executor to process incoming messages
   rclc_executor_spin_some(&executor, RCL_MS_TO_NS(1));
