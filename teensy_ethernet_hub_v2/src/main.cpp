@@ -1,3 +1,4 @@
+// https://docs.vulcanexus.org/en/latest/rst/microros_documentation/benchmarking/benchmarking.html?utm_source=chatgpt.com
 // pio pkg install # Install dependencies
 // pio run # Build the firmware
 // pio run --target upload # Flash the firmware
@@ -20,6 +21,24 @@
 * ros2 topic pub /teensy_hub/servo_pos soro_msgs/msg/ServoCommands "{servo_micros: [15100, 15200, 15300, 15400, 15500, 15600, 15700, 15800, 15900, 15100, 15110, 15120]}"
 *
 * ros2 run plotjuggler plotjuggler
+*/
+
+/*
+* Fix ERROR:colcon.colcon_cmake.task.cmake.build:Could not find a shell extension for the command environment Failed <<< ament_cmake_python [0.02s, exited with code 1]
+* clean everything:
+* pio run --target clean
+* rm -rf .pio/libdeps/
+* rm -rf ~/.micro_ros_dev
+*
+* update extensions
+* sudo apt update
+* sudo apt install python3-colcon-common-extensions python3-pip
+* pip3 install -U setuptools
+*
+*Force-rebuild micro-ROS dev deps
+* cd .pio/libdeps/teensy41_eth/micro_ros_platformio
+* rm -rf build/ install/ log/
+* pio run
 */
 
 #include <micro_ros_platformio.h>
@@ -61,20 +80,20 @@ rcl_publisher_t publisher_mag_2;
 rcl_publisher_t publisher_mag_3;
 rcl_publisher_t publisher_mag_4;
 
-// rcl_publisher_t publisher_IMU_gravity_1;
-// rcl_publisher_t publisher_IMU_gravity_2;
-// rcl_publisher_t publisher_IMU_gravity_3;
-//rcl_publisher_t publisher_IMU_gravity_4;
+rcl_publisher_t publisher_IMU_gravity_1;
+rcl_publisher_t publisher_IMU_gravity_2;
+rcl_publisher_t publisher_IMU_gravity_3;
+rcl_publisher_t publisher_IMU_gravity_4;
 
-// rcl_publisher_t publisher_IMU_gyrobias_1;
-// rcl_publisher_t publisher_IMU_gyrobias_2;
-// rcl_publisher_t publisher_IMU_gyrobias_3;
-// rcl_publisher_t publisher_IMU_gyrobias_4;
+rcl_publisher_t publisher_IMU_gyrobias_1;
+rcl_publisher_t publisher_IMU_gyrobias_2;
+rcl_publisher_t publisher_IMU_gyrobias_3;
+rcl_publisher_t publisher_IMU_gyrobias_4;
 
-// rcl_publisher_t publisher_IMU_rotation_1;
-// rcl_publisher_t publisher_IMU_rotation_2;
-// rcl_publisher_t publisher_IMU_rotation_3;
-// rcl_publisher_t publisher_IMU_rotation_4;
+rcl_publisher_t publisher_IMU_rotation_1;
+rcl_publisher_t publisher_IMU_rotation_2;
+rcl_publisher_t publisher_IMU_rotation_3;
+rcl_publisher_t publisher_IMU_rotation_4;
 
 rcl_subscription_t subscriber;
 soro_msgs__msg__ServoCommands current_servo_pos_msg;
@@ -271,17 +290,19 @@ void read_imu_game_rotation_vector(LSM6DSV16XSensor& sensor, float* quaternions,
  * It retrieves the current servo positions from the ServoControl objects and publishes them to the "servo_pos_set" topic.
  * The function uses a static variable to keep track of the last time it was called, ensuring that it only publishes at the specified interval.
  */
-void publish_current_servo_positions(uint32_t publish_interval_ms = 1000) {
-  static uint32_t last_call_ms = 0;
-  if (millis() - last_call_ms > publish_interval_ms) {
-    last_call_ms = millis();
-
-    for (int i = 0; i < NUM_MOTORS; i++) {
-      current_servo_pos_msg.servo_micros[i] = motors[i].get_servo_pulse_length_set(); // Get the pulse length set for each servo
-    }
-    RCSOFTCHECK(rcl_publish(&publisher, &current_servo_pos_msg, NULL));
+void publish_current_servo_positions(uint32_t publish_interval_micros = 1000000) {
+  static uint32_t last_call_micros = 0;
+  if (micros() - last_call_micros < publish_interval_micros) {
+    return; // Limit the frequency of publishing to a period time of publish_interval_micros
   }
+  last_call_micros = micros();
+
+  for (int i = 0; i < NUM_MOTORS; i++) {
+    current_servo_pos_msg.servo_micros[i] = motors[i].get_servo_pulse_length_set(); // Get the pulse length set for each servo
+  }
+  RCSOFTCHECK(rcl_publish(&publisher, &current_servo_pos_msg, NULL));
 }
+
 
 /**
  * @brief Publish accelerometer data from the specified IMU to the given publisher.
@@ -294,29 +315,20 @@ void publish_current_servo_positions(uint32_t publish_interval_ms = 1000) {
  * fills a geometry_msgs__msg__Accel message with this data, and publishes it.
  */
 // Note: The function limits the frequency of publishing to 100Hz by checking the time since the last call.
-void publish_accel_data(const rcl_publisher_t *publisher_imu, LSM6DSV16XSensor &imu, int imu_index = 0) {
-  static uint32_t last_call_ms[NUM_IMU] = {0};
-  if (millis() - last_call_ms[imu_index] < 10) {
-    return; // Limit the frequency of publishing to 100Hz
+void publish_accel_data(const rcl_publisher_t *publisher_imu, LSM6DSV16XSensor &imu, int imu_index = 0, uint32_t publish_interval_micros = 10000) {
+  static uint32_t last_call_micros[NUM_IMU] = {0};
+  if (micros() - last_call_micros[imu_index] < publish_interval_micros) {
+    return; // Limit the frequency of publishing to a period time of publish_interval_micros
   }
-  last_call_ms[imu_index] = millis();
+  last_call_micros[imu_index] = micros();
 
   int32_t accel[3] = {0};
   int32_t angrate[3] = {0};
-  //float quaternions[4] = {0};
-  //float gyroscope_bias[3] = {0};
-  //float gravity_vector[3] = {0};
 
-  // int32_t accel[3];
-  // int32_t angrate[3];
   geometry_msgs__msg__Accel accel_msg;
 
   // Read accelerometer/gyroscope data
   read_imu(imu, accel, angrate);
-  //imu.Get_X_Axes(accel);
-  //imu.Get_G_Axes(angrate);
-  // lsm6dsv16x_1.Get_X_Axes(accel);
-  // lsm6dsv16x_1.Get_G_Axes(gyro);
 
   // Fill the accel_msg with the data
   accel_msg.linear.x = accel[0];
@@ -342,12 +354,12 @@ void publish_accel_data(const rcl_publisher_t *publisher_imu, LSM6DSV16XSensor &
  * fills a geometry_msgs__msg__Accel message with this data, and publishes it.
  */
 // Note: The function limits the frequency of publishing to 100Hz by checking the time since the last call.
-void publish_imu_game_rotation_vector_data(const rcl_publisher_t *publisher_rotation, const rcl_publisher_t *publisher_gravity, const rcl_publisher_t *publisher_gyrobias, LSM6DSV16XSensor &imu, int imu_index = 0) {
-  static uint32_t last_call_ms[NUM_IMU] = {0};
-  if (millis() - last_call_ms[imu_index] < 10) {
-    return; // Limit the frequency of publishing to 100Hz
+void publish_imu_game_rotation_vector_data(const rcl_publisher_t *publisher_rotation, const rcl_publisher_t *publisher_gravity, const rcl_publisher_t *publisher_gyrobias, LSM6DSV16XSensor &imu, int imu_index = 0, uint32_t publish_interval_micros = 10000) {
+  static uint32_t last_call_micros[NUM_IMU] = {0};
+  if (micros() - last_call_micros[imu_index] < publish_interval_micros) {
+    return; // Limit the frequency of publishing to a period time of publish_interval_micros
   }
-  last_call_ms[imu_index] = millis();
+  last_call_micros[imu_index] = micros();
 
   float quaternions[4] = {0};
   float gyroscope_bias[3] = {0};
@@ -359,10 +371,6 @@ void publish_imu_game_rotation_vector_data(const rcl_publisher_t *publisher_rota
 
   // Read accelerometer/gyroscope data
   read_imu_game_rotation_vector(imu, quaternions, gyroscope_bias, gravity_vector);
-  //imu.Get_X_Axes(accel);
-  //imu.Get_G_Axes(angrate);
-  // lsm6dsv16x_1.Get_X_Axes(accel);
-  // lsm6dsv16x_1.Get_G_Axes(gyro);
 
   // Fill the accel_msg with the data
   quat_msg.x = quaternions[0];
@@ -395,12 +403,12 @@ void publish_imu_game_rotation_vector_data(const rcl_publisher_t *publisher_rota
  * fills a geometry_msgs__msg__Accel message with this data, and publishes it.
  */
 // Note: The function limits the frequency of publishing to 100Hz by checking the time since the last call.
-void publish_magnetometer_data(const rcl_publisher_t *publisher_imu, LSM6DSV16XSensor &imu, int imu_index = 0) {
-  static uint32_t last_call_ms[NUM_IMU] = {0};
-  if (millis() - last_call_ms[imu_index] < 10) {
-    return; // Limit the frequency of publishing to 100Hz
+void publish_magnetometer_data(const rcl_publisher_t *publisher_imu, LSM6DSV16XSensor &imu, int imu_index = 0, uint32_t publish_interval_micros = 10000) {
+  static uint32_t last_call_micros[NUM_IMU] = {0};
+  if (micros() - last_call_micros[imu_index] < publish_interval_micros) {
+    return; // Limit the frequency of publishing to a period time of publish_interval_micros
   }
-  last_call_ms[imu_index] = millis();
+  last_call_micros[imu_index] = micros();
 
   double mag_field[3] = {0.0};
   read_magnetometer(imu, mag_field);
@@ -544,79 +552,79 @@ void setup() {
    "mag_data_4"));
 
   // publishers for gravity vector
-  // RCCHECK(rclc_publisher_init_best_effort(
-  //   &publisher_IMU_gravity_1,
-  //   &node,
-  //   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
-  //   "imu_gravity_data_1"));
+  RCCHECK(rclc_publisher_init_best_effort(
+    &publisher_IMU_gravity_1,
+    &node,
+    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
+    "imu_gravity_data_1"));
   
-  // RCCHECK(rclc_publisher_init_best_effort(
-  //  &publisher_IMU_gravity_2,
-  //  &node,
-  //  ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
-  //  "imu_gravity_data_2"));
+  RCCHECK(rclc_publisher_init_best_effort(
+   &publisher_IMU_gravity_2,
+   &node,
+   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
+   "imu_gravity_data_2"));
+
+  RCCHECK(rclc_publisher_init_best_effort(
+    &publisher_IMU_gravity_3,
+    &node,
+    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
+    "imu_gravity_data_3"));
   
-  // RCCHECK(rclc_publisher_init_best_effort(
-  //   &publisher_IMU_gravity_3,
-  //   &node,
-  //   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
-  //   "imu_gravity_data_3"));
-  
-  // RCCHECK(rclc_publisher_init_best_effort(
-  //  &publisher_IMU_gravity_4,
-  //  &node,
-  //  ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
-  //  "imu_gravity_data_4"));
+  RCCHECK(rclc_publisher_init_best_effort(
+   &publisher_IMU_gravity_4,
+   &node,
+   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
+   "imu_gravity_data_4"));
 
   // publishers for game rotation vector
-  // RCCHECK(rclc_publisher_init_best_effort(
-  //   &publisher_IMU_rotation_1,
-  //   &node,
-  //   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Quaternion),
-  //   "imu_rotation_data_1"));
+  RCCHECK(rclc_publisher_init_best_effort(
+    &publisher_IMU_rotation_1,
+    &node,
+    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Quaternion),
+    "imu_rotation_data_1"));
   
-  // RCCHECK(rclc_publisher_init_best_effort(
-  //   &publisher_IMU_rotation_2,
-  //   &node,
-  //   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Quaternion),
-  //   "imu_rotation_data_2"));
+  RCCHECK(rclc_publisher_init_best_effort(
+    &publisher_IMU_rotation_2,
+    &node,
+    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Quaternion),
+    "imu_rotation_data_2"));
   
-  // RCCHECK(rclc_publisher_init_best_effort(
-  //   &publisher_IMU_rotation_3,
-  //   &node,
-  //   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Quaternion),
-  //   "imu_rotation_data_3"));
+  RCCHECK(rclc_publisher_init_best_effort(
+    &publisher_IMU_rotation_3,
+    &node,
+    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Quaternion),
+    "imu_rotation_data_3"));
 
-  // RCCHECK(rclc_publisher_init_best_effort(
-  //   &publisher_IMU_rotation_4,
-  //   &node,
-  //   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Quaternion),
-  //   "imu_rotation_data_4"));  
+  RCCHECK(rclc_publisher_init_best_effort(
+    &publisher_IMU_rotation_4,
+    &node,
+    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Quaternion),
+    "imu_rotation_data_4"));  
 
   // publishers for gyroscope bias
-  // RCCHECK(rclc_publisher_init_best_effort(
-  //   &publisher_IMU_gyrobias_1,
-  //   &node,
-  //   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
-  //   "imu_gyrobias_data_1"));
+  RCCHECK(rclc_publisher_init_best_effort(
+    &publisher_IMU_gyrobias_1,
+    &node,
+    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
+    "imu_gyrobias_data_1"));
   
-  // RCCHECK(rclc_publisher_init_best_effort(
-  //   &publisher_IMU_gyrobias_2,
-  //   &node,
-  //   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
-  //   "imu_gyrobias_data_2")); 
+  RCCHECK(rclc_publisher_init_best_effort(
+    &publisher_IMU_gyrobias_2,
+    &node,
+    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
+    "imu_gyrobias_data_2")); 
   
-  // RCCHECK(rclc_publisher_init_best_effort(
-  //   &publisher_IMU_gyrobias_3,
-  //   &node,
-  //   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
-  //   "imu_gyrobias_data_3"));
+  RCCHECK(rclc_publisher_init_best_effort(
+    &publisher_IMU_gyrobias_3,
+    &node,
+    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
+    "imu_gyrobias_data_3"));
   
-  // RCCHECK(rclc_publisher_init_best_effort(
-  //   &publisher_IMU_gyrobias_4,
-  //   &node,
-  //   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
-  //   "imu_gyrobias_data_4"));
+  RCCHECK(rclc_publisher_init_best_effort(
+    &publisher_IMU_gyrobias_4,
+    &node,
+    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
+    "imu_gyrobias_data_4"));
 
   // Initialize subscriber on topic "subscribe_topic"
   // RCCHECK(rclc_subscription_init_best_effort(
@@ -640,24 +648,29 @@ void setup() {
 
 void loop() {
   // publish messages
-  publish_current_servo_positions();
-  publish_accel_data(&publisher_IMU_1, imus[0], 0);
-  publish_accel_data(&publisher_IMU_2, imus[1], 1);
-  publish_accel_data(&publisher_IMU_3, imus[2], 2);
-  publish_accel_data(&publisher_IMU_4, imus[3], 3);
+  uint32_t publish_period_time_micros = 10000; // period time in microseconds
 
-  // publish_imu_game_rotation_vector_data(&publisher_IMU_rotation_1, &publisher_IMU_gravity_1, &publisher_IMU_gyrobias_1, imus[0], 0);
-  //publish_imu_game_rotation_vector_data(&publisher_IMU_rotation_2, &publisher_IMU_gravity_2, &publisher_IMU_gyrobias_2, imus[1], 1);
-  //publish_imu_game_rotation_vector_data(&publisher_IMU_rotation_3, &publisher_IMU_gravity_3, &publisher_IMU_gyrobias_3, imus[2], 2);
-  //publish_imu_game_rotation_vector_data(&publisher_IMU_rotation_4, &publisher_IMU_gravity_4, &publisher_IMU_gyrobias_4, imus[3], 3);
+  publish_period_time_micros = 1000000; // period time in microseconds
+  publish_current_servo_positions(publish_period_time_micros);
+  
+  publish_period_time_micros = 10000; // period time in microseconds
+  publish_accel_data(&publisher_IMU_1, imus[0], 0, publish_period_time_micros);
+  publish_accel_data(&publisher_IMU_2, imus[1], 1, publish_period_time_micros);
+  publish_accel_data(&publisher_IMU_3, imus[2], 2, publish_period_time_micros);
+  publish_accel_data(&publisher_IMU_4, imus[3], 3, publish_period_time_micros);
 
-  publish_magnetometer_data(&publisher_mag_1, imus[0], 0);
-  publish_magnetometer_data(&publisher_mag_2, imus[1], 1);
-  publish_magnetometer_data(&publisher_mag_3, imus[2], 2);
-  publish_magnetometer_data(&publisher_mag_4, imus[3], 3);
+  publish_period_time_micros = 10000; // period time in microseconds
+  publish_imu_game_rotation_vector_data(&publisher_IMU_rotation_1, &publisher_IMU_gravity_1, &publisher_IMU_gyrobias_1, imus[0], 0, publish_period_time_micros);
+  publish_imu_game_rotation_vector_data(&publisher_IMU_rotation_2, &publisher_IMU_gravity_2, &publisher_IMU_gyrobias_2, imus[1], 1, publish_period_time_micros);
+  publish_imu_game_rotation_vector_data(&publisher_IMU_rotation_3, &publisher_IMU_gravity_3, &publisher_IMU_gyrobias_3, imus[2], 2, publish_period_time_micros);
+  publish_imu_game_rotation_vector_data(&publisher_IMU_rotation_4, &publisher_IMU_gravity_4, &publisher_IMU_gyrobias_4, imus[3], 3, publish_period_time_micros);
+
+  publish_period_time_micros = 10000; // period time in microseconds
+  publish_magnetometer_data(&publisher_mag_1, imus[0], 0, publish_period_time_micros);
+  publish_magnetometer_data(&publisher_mag_2, imus[1], 1, publish_period_time_micros);
+  publish_magnetometer_data(&publisher_mag_3, imus[2], 2, publish_period_time_micros);
+  publish_magnetometer_data(&publisher_mag_4, imus[3], 3, publish_period_time_micros);
 
   // Spin executor to process incoming messages
   rclc_executor_spin_some(&executor, RCL_MS_TO_NS(1));
-
-  // delay(1);
 }
