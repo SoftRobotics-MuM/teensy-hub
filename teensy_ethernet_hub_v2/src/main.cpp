@@ -627,12 +627,12 @@ void setup() {
     "imu_gyrobias_data_4"));
 
   // Initialize subscriber on topic "subscribe_topic"
-  // RCCHECK(rclc_subscription_init_best_effort(
-  //   &subscriber,
-  //   &node,
-  //   // ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, incoming_msg, Int32),
-  //   ROSIDL_GET_MSG_TYPE_SUPPORT(soro_msgs, msg, ServoCommands),
-  //   "servo_pos"));
+   RCCHECK(rclc_subscription_init_best_effort(
+     &subscriber,
+     &node,
+    // ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, incoming_msg, Int32),
+     ROSIDL_GET_MSG_TYPE_SUPPORT(soro_msgs, msg, ServoCommands),
+    "servo_pos"));
   
   // Initialize executor with 1 handle (subscriber)
   RCCHECK(rclc_executor_init(&executor, &support.context, 1, &allocator));
@@ -652,7 +652,7 @@ void loop() {
 
   publish_period_time_micros = 1000000; // period time in microseconds
   publish_current_servo_positions(publish_period_time_micros);
-  
+
   publish_period_time_micros = 10000; // period time in microseconds
   publish_accel_data(&publisher_IMU_1, imus[0], 0, publish_period_time_micros);
   publish_accel_data(&publisher_IMU_2, imus[1], 1, publish_period_time_micros);
