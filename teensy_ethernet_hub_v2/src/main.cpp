@@ -290,7 +290,7 @@ void setup() {
   get_teensy_mac(arduino_mac);
   #endif
 
-  IPAddress arduino_ip(192, 168, 1, 177);
+  IPAddress arduino_ip(192, 168, 1, 179);
   IPAddress agent_ip(192, 168, 1, 113);
   size_t domain_id = 72;
   set_microros_native_ethernet_transports(arduino_mac, arduino_ip, agent_ip, 8888);
