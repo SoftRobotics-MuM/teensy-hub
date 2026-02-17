@@ -66,6 +66,13 @@
 #define RCCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){error_loop();}}
 #define RCSOFTCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){}}
 
+// parameters
+// Note: The publish period times can be set to a value higher than 1000*1000*60 to effectively disable the respective publisher.
+const uint32_t publish_period_time_servo_set_micros = 1000000*60; // period time in microseconds
+const uint32_t publish_period_time_imu_micros = 10000; // period time in microseconds
+const uint32_t publish_period_time_imu_rotation_micros = 10000*60*1000; // period time in microseconds
+const uint32_t publish_period_time_mag_micros = 10000; // period time in microseconds
+
 // Pin configuration
 constexpr uint16_t PIN_LED = 13;
 
@@ -163,6 +170,7 @@ void publish_current_servo_positions(uint32_t publish_interval_micros = 1000000)
  * fills a geometry_msgs__msg__Accel message with this data, and publishes it.
  */
 // Note: The function limits the frequency of publishing to 100Hz by checking the time since the last call.
+geometry_msgs__msg__Accel accel_msg;
 void publish_accel_data(const rcl_publisher_t *publisher_imu, LSM6DSV16XSensor &imu, int imu_index = 0, uint32_t publish_interval_micros = 10000) {
   static uint32_t last_call_micros[NUM_IMU] = {0};
   if (micros() - last_call_micros[imu_index] < publish_interval_micros) {
@@ -173,7 +181,7 @@ void publish_accel_data(const rcl_publisher_t *publisher_imu, LSM6DSV16XSensor &
   int32_t accel[3] = {0};
   int32_t angrate[3] = {0};
 
-  geometry_msgs__msg__Accel accel_msg;
+  // geometry_msgs__msg__Accel accel_msg;
 
   // Read accelerometer/gyroscope data
   read_imu(imu, accel, angrate);
@@ -202,6 +210,9 @@ void publish_accel_data(const rcl_publisher_t *publisher_imu, LSM6DSV16XSensor &
  * fills a geometry_msgs__msg__Accel message with this data, and publishes it.
  */
 // Note: The function limits the frequency of publishing to 100Hz by checking the time since the last call.
+geometry_msgs__msg__Quaternion quat_msg;
+geometry_msgs__msg__Vector3 gyroscope_bias_msg;
+geometry_msgs__msg__Vector3 gravity_vector_msg;
 void publish_imu_game_rotation_vector_data(const rcl_publisher_t *publisher_rotation, const rcl_publisher_t *publisher_gravity, const rcl_publisher_t *publisher_gyrobias, LSM6DSV16XSensor &imu, int imu_index = 0, uint32_t publish_interval_micros = 10000) {
   static uint32_t last_call_micros[NUM_IMU] = {0};
   if (micros() - last_call_micros[imu_index] < publish_interval_micros) {
@@ -212,10 +223,6 @@ void publish_imu_game_rotation_vector_data(const rcl_publisher_t *publisher_rota
   float quaternions[4] = {0};
   float gyroscope_bias[3] = {0};
   float gravity_vector[3] = {0};
-
-  geometry_msgs__msg__Quaternion quat_msg;
-  geometry_msgs__msg__Vector3 gyroscope_bias_msg;
-  geometry_msgs__msg__Vector3 gravity_vector_msg;
 
   // Read accelerometer/gyroscope data
   read_imu_game_rotation_vector(imu, quaternions, gyroscope_bias, gravity_vector);
@@ -251,6 +258,7 @@ void publish_imu_game_rotation_vector_data(const rcl_publisher_t *publisher_rota
  * fills a geometry_msgs__msg__Accel message with this data, and publishes it.
  */
 // Note: The function limits the frequency of publishing to 100Hz by checking the time since the last call.
+geometry_msgs__msg__Vector3 mag_msg;
 void publish_magnetometer_data(const rcl_publisher_t *publisher_imu, LSM6DSV16XSensor &imu, int imu_index = 0, uint32_t publish_interval_micros = 10000) {
   static uint32_t last_call_micros[NUM_IMU] = {0};
   if (micros() - last_call_micros[imu_index] < publish_interval_micros) {
@@ -261,7 +269,7 @@ void publish_magnetometer_data(const rcl_publisher_t *publisher_imu, LSM6DSV16XS
   double mag_field[3] = {0.0};
   read_magnetometer(imu, mag_field);
 
-  geometry_msgs__msg__Vector3 mag_msg;
+  // geometry_msgs__msg__Vector3 mag_msg;
 
   // Fill the mag_msg with the data
   mag_msg.x = mag_field[0];
@@ -495,29 +503,32 @@ void setup() {
 
 void loop() {
   // publish messages
-  uint32_t publish_period_time_micros = 10000; // period time in microseconds
+  // uint32_t publish_period_time_micros = 10000; // period time in microseconds
+  if (publish_period_time_servo_set_micros < 1000*1000*60) {
+      publish_current_servo_positions(publish_period_time_servo_set_micros);
+  }
 
-  publish_period_time_micros = 1000000; // period time in microseconds
-  publish_current_servo_positions(publish_period_time_micros);
+  if (publish_period_time_imu_micros < 1000*1000*60) {
+    publish_accel_data(&publisher_IMU_1, imus[0], 0, publish_period_time_imu_micros);
+    publish_accel_data(&publisher_IMU_2, imus[1], 1, publish_period_time_imu_micros);
+    publish_accel_data(&publisher_IMU_3, imus[2], 2, publish_period_time_imu_micros);
+    publish_accel_data(&publisher_IMU_4, imus[3], 3, publish_period_time_imu_micros);
+  }
 
-  publish_period_time_micros = 10000; // period time in microseconds
-  publish_accel_data(&publisher_IMU_1, imus[0], 0, publish_period_time_micros);
-  publish_accel_data(&publisher_IMU_2, imus[1], 1, publish_period_time_micros);
-  publish_accel_data(&publisher_IMU_3, imus[2], 2, publish_period_time_micros);
-  publish_accel_data(&publisher_IMU_4, imus[3], 3, publish_period_time_micros);
+  if (publish_period_time_imu_rotation_micros < 1000*1000*60) {
+    publish_imu_game_rotation_vector_data(&publisher_IMU_rotation_1, &publisher_IMU_gravity_1, &publisher_IMU_gyrobias_1, imus[0], 0, publish_period_time_imu_rotation_micros);
+    publish_imu_game_rotation_vector_data(&publisher_IMU_rotation_2, &publisher_IMU_gravity_2, &publisher_IMU_gyrobias_2, imus[1], 1, publish_period_time_imu_rotation_micros);
+    publish_imu_game_rotation_vector_data(&publisher_IMU_rotation_3, &publisher_IMU_gravity_3, &publisher_IMU_gyrobias_3, imus[2], 2, publish_period_time_imu_rotation_micros);
+    publish_imu_game_rotation_vector_data(&publisher_IMU_rotation_4, &publisher_IMU_gravity_4, &publisher_IMU_gyrobias_4, imus[3], 3, publish_period_time_imu_rotation_micros);
+  }
 
-  publish_period_time_micros = 10000; // period time in microseconds
-  publish_imu_game_rotation_vector_data(&publisher_IMU_rotation_1, &publisher_IMU_gravity_1, &publisher_IMU_gyrobias_1, imus[0], 0, publish_period_time_micros);
-  publish_imu_game_rotation_vector_data(&publisher_IMU_rotation_2, &publisher_IMU_gravity_2, &publisher_IMU_gyrobias_2, imus[1], 1, publish_period_time_micros);
-  publish_imu_game_rotation_vector_data(&publisher_IMU_rotation_3, &publisher_IMU_gravity_3, &publisher_IMU_gyrobias_3, imus[2], 2, publish_period_time_micros);
-  publish_imu_game_rotation_vector_data(&publisher_IMU_rotation_4, &publisher_IMU_gravity_4, &publisher_IMU_gyrobias_4, imus[3], 3, publish_period_time_micros);
-
-  publish_period_time_micros = 10000; // period time in microseconds
-  publish_magnetometer_data(&publisher_mag_1, imus[0], 0, publish_period_time_micros);
-  publish_magnetometer_data(&publisher_mag_2, imus[1], 1, publish_period_time_micros);
-  publish_magnetometer_data(&publisher_mag_3, imus[2], 2, publish_period_time_micros);
-  publish_magnetometer_data(&publisher_mag_4, imus[3], 3, publish_period_time_micros);
+  if (publish_period_time_mag_micros < 1000*1000*60) {
+    publish_magnetometer_data(&publisher_mag_1, imus[0], 0, publish_period_time_mag_micros);
+    publish_magnetometer_data(&publisher_mag_2, imus[1], 1, publish_period_time_mag_micros);
+    publish_magnetometer_data(&publisher_mag_3, imus[2], 2, publish_period_time_mag_micros);
+    publish_magnetometer_data(&publisher_mag_4, imus[3], 3, publish_period_time_mag_micros);
+  }
 
   // Spin executor to process incoming messages
-  rclc_executor_spin_some(&executor, RCL_MS_TO_NS(1));
+  rclc_executor_spin_some(&executor, RCL_MS_TO_NS(0));
 }
