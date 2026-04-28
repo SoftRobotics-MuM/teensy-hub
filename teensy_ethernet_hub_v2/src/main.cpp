@@ -48,6 +48,7 @@
 #include <rcl/error_handling.h>
 #include <rclc/rclc.h>
 #include <rclc/executor.h>
+#include <std_msgs/msg/u_int32.h>
 #include <soro_msgs/msg/servo_commands.h>
 #include "servo_control.h"
 #include "servo_cfg.h"
@@ -110,6 +111,15 @@ rclc_support_t support;
 rcl_allocator_t allocator;
 rcl_node_t node;
 rclc_executor_t executor;
+
+// latency time (round-trip time) echo interfaces
+// Receive ping messages on /rtt_ping and immediately echo them back on /rtt_pong.
+rcl_publisher_t rtt_pong_publisher;
+rcl_subscription_t rtt_ping_subscriber;
+
+// Message storage for the RTT echo path
+std_msgs__msg__UInt32 rtt_ping_msg;
+std_msgs__msg__UInt32 rtt_pong_msg;
 
 // IMU
 const int NUM_IMU = 4; // Number of IMUs
@@ -290,6 +300,18 @@ void servo_command_subscription_callback(const void * msgin)
   }
 }
 
+// RTT ping subscription callback
+// The received sequence number is copied unchanged and immediately published on /rtt_pong
+void rtt_ping_subscription_callback(const void * msgin)
+{
+  const auto * incoming_msg = (const std_msgs__msg__UInt32 *)msgin;
+
+  rtt_pong_msg.data = incoming_msg->data;
+
+  rcl_publish(&rtt_pong_publisher, &rtt_pong_msg, NULL);
+}
+
+
 void setup() {
   // setup ethernet connection
    byte arduino_mac[] = { 0xAA, 0xBB, 0xCC, 0xEE, 0xDD, 0xFF };
@@ -364,7 +386,7 @@ void setup() {
     "imu_data_1"));
 
   RCCHECK(rclc_publisher_init_best_effort(
-   &publisher_IMU_2,
+    &publisher_IMU_2,
    &node,
    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Accel),
    "imu_data_2"));
@@ -482,15 +504,15 @@ void setup() {
     "imu_gyrobias_data_4"));
 
   // Initialize subscriber on topic "subscribe_topic"
-   RCCHECK(rclc_subscription_init_best_effort(
-     &subscriber,
-     &node,
+  RCCHECK(rclc_subscription_init_best_effort(
+    &subscriber,
+    &node,
     // ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, incoming_msg, Int32),
-     ROSIDL_GET_MSG_TYPE_SUPPORT(soro_msgs, msg, ServoCommands),
+    ROSIDL_GET_MSG_TYPE_SUPPORT(soro_msgs, msg, ServoCommands),
     "servo_pos"));
   
   // Initialize executor with 1 handle (subscriber)
-  RCCHECK(rclc_executor_init(&executor, &support.context, 1, &allocator));
+  RCCHECK(rclc_executor_init(&executor, &support.context, 2, &allocator));
 
   // Add subscriber handle and callback to executor
   RCCHECK(rclc_executor_add_subscription(
@@ -499,11 +521,33 @@ void setup() {
     &incoming_msg,
     &servo_command_subscription_callback,
     ON_NEW_DATA));
+
+  // RTT echo interfaces
+  // Receive ping messages on /rtt_ping and publish the same value back on /rtt_pong.
+  RCCHECK(rclc_publisher_init_best_effort(
+    &rtt_pong_publisher,
+    &node,
+    ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, UInt32),
+    "/rtt_pong"));
+
+  RCCHECK(rclc_subscription_init_best_effort(
+    &rtt_ping_subscriber,
+    &node,
+    ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, UInt32),
+    "/rtt_ping"));
+
+  // Add RTT ping subscription to the executor.
+  RCCHECK(rclc_executor_add_subscription(
+    &executor,
+    &rtt_ping_subscriber,
+    &rtt_ping_msg,
+    &rtt_ping_subscription_callback,
+    ON_NEW_DATA));
 }
 
 void loop() {
   // publish messages
-  // uint32_t publish_period_time_micros = 10000; // period time in microseconds
+  uint32_t publish_period_time_micros = 10000; // period time in microseconds
   if (publish_period_time_servo_set_micros < 1000*1000*60) {
       publish_current_servo_positions(publish_period_time_servo_set_micros);
   }
@@ -530,5 +574,5 @@ void loop() {
   }
 
   // Spin executor to process incoming messages
-  rclc_executor_spin_some(&executor, RCL_MS_TO_NS(0));
+  rclc_executor_spin_some(&executor, RCL_MS_TO_NS(1)); // ToDo: Testwert ob das nun klappt vorher RCL_MS_TO_NS(0)
 }
