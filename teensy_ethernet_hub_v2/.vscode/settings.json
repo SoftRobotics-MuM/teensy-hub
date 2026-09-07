@@ -3,5 +3,6 @@
         "array": "cpp",
         "string": "cpp",
         "string_view": "cpp"
-    }
+    },
+    "cmake.sourceDirectory": "/home/malte-grube/soft-robotics/micro-ros_ws/teensy_ethernet_hub_v2/extra_packages/soro_msgs"
 }

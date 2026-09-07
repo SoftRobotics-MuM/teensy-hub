@@ -68,9 +68,9 @@
 
 // parameters
 // Note: The publish period times can be set to a value higher than 1000*1000*60 to effectively disable the respective publisher.
-const uint32_t publish_period_time_servo_set_micros = 1000000*60; // period time in microseconds
+const uint32_t publish_period_time_servo_set_micros = 2000000*60; // period time in microseconds
 const uint32_t publish_period_time_imu_micros = 10000; // period time in microseconds
-const uint32_t publish_period_time_imu_rotation_micros = 10000*60*1000; // period time in microseconds
+const uint32_t publish_period_time_imu_rotation_micros = 10000; // period time in microseconds
 const uint32_t publish_period_time_mag_micros = 10000; // period time in microseconds
 
 // Pin configuration
@@ -306,6 +306,10 @@ void setup() {
   pinMode(PIN_LED, OUTPUT);
   digitalWrite(PIN_LED, HIGH);
   Serial.begin(115200); // Initialize serial output for debug
+  delay(1000); // Wait for serial to initialize
+  Serial.println("Starting micro-ROS Arduino Teensy Hub Node...");
+  delay(1000); // Wait for serial to initialize
+
 
   // Servo init
   for(uint8_t i = 0; i < NUM_MOTORS; i++) {
@@ -499,9 +503,12 @@ void setup() {
     &incoming_msg,
     &servo_command_subscription_callback,
     ON_NEW_DATA));
+
+  Serial.println("Micro-ROS Arduino Teensy Hub Node started.");
 }
 
 void loop() {
+  // Serial.println("Looping...");
   // publish messages
   // uint32_t publish_period_time_micros = 10000; // period time in microseconds
   if (publish_period_time_servo_set_micros < 1000*1000*60) {
@@ -530,5 +537,5 @@ void loop() {
   }
 
   // Spin executor to process incoming messages
-  rclc_executor_spin_some(&executor, RCL_MS_TO_NS(0));
+  rclc_executor_spin_some(&executor, RCL_MS_TO_NS(1));
 }
