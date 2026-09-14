@@ -68,10 +68,10 @@
 
 // parameters
 // Note: The publish period times can be set to a value higher than 1000*1000*60 to effectively disable the respective publisher.
-const uint32_t publish_period_time_servo_set_micros = 2000000*60; // period time in microseconds
-const uint32_t publish_period_time_imu_micros = 10000; // period time in microseconds
-const uint32_t publish_period_time_imu_rotation_micros = 10000; // period time in microseconds
-const uint32_t publish_period_time_mag_micros = 10000; // period time in microseconds
+const uint32_t publish_period_time_servo_set_micros = 1000*1000*60; // period time in microseconds
+const uint32_t publish_period_time_imu_micros = 1000*1000*60; // period time in microseconds
+const uint32_t publish_period_time_imu_rotation_micros = 1000*1000*60; // period time in microseconds
+const uint32_t publish_period_time_mag_micros = 1000*1000*60; // period time in microseconds
 
 // Pin configuration
 constexpr uint16_t PIN_LED = 13;
@@ -298,7 +298,7 @@ void setup() {
   get_teensy_mac(arduino_mac);
   #endif
 
-  IPAddress arduino_ip(192, 168, 1, 179);
+  IPAddress arduino_ip(192, 168, 1, 177);
   IPAddress agent_ip(192, 168, 1, 113);
   size_t domain_id = 72;
   set_microros_native_ethernet_transports(arduino_mac, arduino_ip, agent_ip, 8888);
@@ -306,10 +306,6 @@ void setup() {
   pinMode(PIN_LED, OUTPUT);
   digitalWrite(PIN_LED, HIGH);
   Serial.begin(115200); // Initialize serial output for debug
-  delay(1000); // Wait for serial to initialize
-  Serial.println("Starting micro-ROS Arduino Teensy Hub Node...");
-  delay(1000); // Wait for serial to initialize
-
 
   // Servo init
   for(uint8_t i = 0; i < NUM_MOTORS; i++) {
@@ -503,12 +499,9 @@ void setup() {
     &incoming_msg,
     &servo_command_subscription_callback,
     ON_NEW_DATA));
-
-  Serial.println("Micro-ROS Arduino Teensy Hub Node started.");
 }
 
 void loop() {
-  // Serial.println("Looping...");
   // publish messages
   // uint32_t publish_period_time_micros = 10000; // period time in microseconds
   if (publish_period_time_servo_set_micros < 1000*1000*60) {

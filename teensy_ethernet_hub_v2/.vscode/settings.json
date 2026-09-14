@@ -4,5 +4,20 @@
         "string": "cpp",
         "string_view": "cpp"
     },
-    "cmake.sourceDirectory": "/home/malte-grube/soft-robotics/micro-ros_ws/teensy_ethernet_hub_v2/extra_packages/soro_msgs"
+    "cmake.sourceDirectory": "/home/malte-grube/soft-robotics/micro-ros_ws/teensy_ethernet_hub_v2/extra_packages/soro_msgs",
+    "ROS2.distro": "jazzy",
+    "python.autoComplete.extraPaths": [
+        "/home/soft-robotics/soft-robotics/ros2_ws/install/soro_msgs/lib/python3.12/site-packages",
+        "/home/soft-robotics/soft-robotics/ros2_ws/install/px4_msgs/lib/python3.12/site-packages",
+        "/home/soft-robotics/soft-robotics/ros2_ws/install/hippo_common/lib/python3.12/site-packages",
+        "/home/soft-robotics/soft-robotics/ros2_ws/src/install/soro_msgs/lib/python3.12/site-packages",
+        "/opt/ros/jazzy/lib/python3.12/site-packages"
+    ],
+    "python.analysis.extraPaths": [
+        "/home/soft-robotics/soft-robotics/ros2_ws/install/soro_msgs/lib/python3.12/site-packages",
+        "/home/soft-robotics/soft-robotics/ros2_ws/install/px4_msgs/lib/python3.12/site-packages",
+        "/home/soft-robotics/soft-robotics/ros2_ws/install/hippo_common/lib/python3.12/site-packages",
+        "/home/soft-robotics/soft-robotics/ros2_ws/src/install/soro_msgs/lib/python3.12/site-packages",
+        "/opt/ros/jazzy/lib/python3.12/site-packages"
+    ]
 }
