@@ -39,6 +39,16 @@
 * cd .pio/libdeps/teensy41_eth/micro_ros_platformio
 * rm -rf build/ install/ log/
 * pio run
+*
+* If that still fails with "No 'rosidl_typesupport_cpp' found" (CMake error
+* inside builtin_interfaces/rosidl_typesupport_c): a system ROS 2 install
+* sourced in your shell profile (e.g. `source /opt/ros/jazzy/setup.zsh` in
+* .zshrc) leaks CMAKE_PREFIX_PATH/AMENT_PREFIX_PATH into this build, and it
+* picks up the host ROS's C++ typesupport instead of the bundled C-only one
+* this cross-compiled target needs. Rebuild with those stripped, e.g.:
+*   env -u CMAKE_PREFIX_PATH -u AMENT_PREFIX_PATH -u ROS_DISTRO -u ROS_VERSION -u ROS_PYTHON_VERSION -u COLCON_PREFIX_PATH \
+*     PATH="$(echo "$PATH" | tr ':' '\n' | grep -v '/opt/ros/jazzy' | paste -sd: -)" \
+*     pio run
 */
 
 #include <micro_ros_platformio.h>
@@ -52,12 +62,15 @@
 #include <soro_msgs/msg/servo_commands.h>
 #include "servo_control.h"
 #include "servo_cfg.h"
-#include <geometry_msgs/msg/accel.h>
-#include <geometry_msgs/msg/vector3.h>
-#include <geometry_msgs/msg/quaternion.h>
-#include <read_LSM6DSV16X.h>
-#include "LSM6DSV16X_regs.h"
-#include "MMC5603_regs.h"
+#include "sensor_cfg.h"
+#include <soro_msgs/msg/sensor_array.h>
+#if USE_NEW_SENSOR_PCB
+  #include "sensor_pcb_v2.h"
+#else
+  #include <read_LSM6DSV16X.h>
+  #include "LSM6DSV16X_regs.h"
+  #include "MMC5603_regs.h"
+#endif
 
 
 #if !defined(ARDUINO_TEENSY41)
@@ -70,9 +83,7 @@
 // parameters
 // Note: The publish period times can be set to a value higher than 1000*1000*60 to effectively disable the respective publisher.
 const uint32_t publish_period_time_servo_set_micros = 1000*1000*60; // period time in microseconds
-const uint32_t publish_period_time_imu_micros = 1000*1000*60; // period time in microseconds
-const uint32_t publish_period_time_imu_rotation_micros = 1000*1000*60; // period time in microseconds
-const uint32_t publish_period_time_mag_micros = 1000*1000*60; // period time in microseconds
+const uint32_t publish_period_time_sensor_data_micros = 1000*1000*60; // period time in microseconds
 
 // Note: Pin 13 (Teensy onboard LED) is also PIN_MOTOR_12's PWM output (see servo_cfg.h).
 // Do not drive it with digitalWrite() - that would fight the hardware PWM and glitch motor 12.
@@ -80,30 +91,7 @@ const uint32_t publish_period_time_mag_micros = 1000*1000*60; // period time in 
 
 // micro-ROS configuration
 rcl_publisher_t publisher;
-rcl_publisher_t publisher_IMU_1;
-rcl_publisher_t publisher_IMU_2;
-rcl_publisher_t publisher_IMU_3;
-rcl_publisher_t publisher_IMU_4;
-
-rcl_publisher_t publisher_mag_1;
-rcl_publisher_t publisher_mag_2;
-rcl_publisher_t publisher_mag_3;
-rcl_publisher_t publisher_mag_4;
-
-rcl_publisher_t publisher_IMU_gravity_1;
-rcl_publisher_t publisher_IMU_gravity_2;
-rcl_publisher_t publisher_IMU_gravity_3;
-rcl_publisher_t publisher_IMU_gravity_4;
-
-rcl_publisher_t publisher_IMU_gyrobias_1;
-rcl_publisher_t publisher_IMU_gyrobias_2;
-rcl_publisher_t publisher_IMU_gyrobias_3;
-rcl_publisher_t publisher_IMU_gyrobias_4;
-
-rcl_publisher_t publisher_IMU_rotation_1;
-rcl_publisher_t publisher_IMU_rotation_2;
-rcl_publisher_t publisher_IMU_rotation_3;
-rcl_publisher_t publisher_IMU_rotation_4;
+rcl_publisher_t publisher_sensor_data;
 
 rcl_subscription_t subscriber;
 soro_msgs__msg__ServoCommands current_servo_pos_msg;
@@ -118,15 +106,16 @@ rclc_executor_t executor;
 // the Teensy consumes.
 rmw_qos_profile_t qos_profile_servo_cmd = rmw_qos_profile_sensor_data;
 
-// IMU
-const int NUM_IMU = 4; // Number of IMUs
+// IMU (old hardware only - see sensor_cfg.h's USE_NEW_SENSOR_PCB)
+#if !USE_NEW_SENSOR_PCB
+const int NUM_IMU = 4; // Number of IMUs (old-hardware sites; maps 1:1 onto SensorArray.boards[0..3])
 LSM6DSV16XSensor lsm6dsv16x_1(&Wire1, LSM6DSV16X_I2C_ADD_L);
 LSM6DSV16XSensor lsm6dsv16x_2(&Wire1, LSM6DSV16X_I2C_ADD_H);
 LSM6DSV16XSensor lsm6dsv16x_3(&Wire2, LSM6DSV16X_I2C_ADD_L);
 LSM6DSV16XSensor lsm6dsv16x_4(&Wire2, LSM6DSV16X_I2C_ADD_H);
 
 LSM6DSV16XSensor imus[NUM_IMU] = {lsm6dsv16x_1, lsm6dsv16x_2, lsm6dsv16x_3, lsm6dsv16x_4};
-//LSM6DSV16XSensor imus[NUM_IMU] = {lsm6dsv16x_1, lsm6dsv16x_2};
+#endif
 
 #if defined(ARDUINO_TEENSY41)
 void get_teensy_mac(uint8_t *mac) {
@@ -167,124 +156,58 @@ void publish_current_servo_positions(uint32_t publish_interval_micros = 1000000)
 
 
 /**
- * @brief Publish accelerometer data from the specified IMU to the given publisher.
- * 
- * @param publisher_imu The publisher to which the accelerometer data will be published.
- * @param imu The IMU sensor from which to read the accelerometer and gyroscope data.
- * @param imu_index The index of the IMU in the array (default is 0). (needed for publish rate limiting)
- * 
- * This function reads the accelerometer and gyroscope data from the specified IMU,
- * fills a geometry_msgs__msg__Accel message with this data, and publishes it.
+ * @brief Read all sensor data (old I2C hardware or new sensor-pcb-v2 shared-SPI-bus
+ * hardware, per sensor_cfg.h's USE_NEW_SENSOR_PCB) and publish it as one
+ * soro_msgs::msg::SensorArray on "sensor_data" - see SensorArray.msg/SensorBoard.msg
+ * for the wire layout. Rate-limited like the other publish_* functions.
  */
-// Note: The function limits the frequency of publishing to 100Hz by checking the time since the last call.
-geometry_msgs__msg__Accel accel_msg;
-void publish_accel_data(const rcl_publisher_t *publisher_imu, LSM6DSV16XSensor &imu, int imu_index = 0, uint32_t publish_interval_micros = 10000) {
-  static uint32_t last_call_micros[NUM_IMU] = {0};
-  if (micros() - last_call_micros[imu_index] < publish_interval_micros) {
+soro_msgs__msg__SensorArray sensor_data_msg;
+void publish_sensor_data(uint32_t publish_interval_micros = 10000) {
+  static uint32_t last_call_micros = 0;
+  if (micros() - last_call_micros < publish_interval_micros) {
     return; // Limit the frequency of publishing to a period time of publish_interval_micros
   }
-  last_call_micros[imu_index] = micros();
+  last_call_micros = micros();
 
-  int32_t accel[3] = {0};
-  int32_t angrate[3] = {0};
+  sensor_data_msg.boards_populated = 0;
 
-  // geometry_msgs__msg__Accel accel_msg;
-
-  // Read accelerometer/gyroscope data
-  read_imu(imu, accel, angrate);
-
-  // Fill the accel_msg with the data
-  accel_msg.linear.x = accel[0];
-  accel_msg.linear.y = accel[1];
-  accel_msg.linear.z = accel[2];
-
-  accel_msg.angular.x = angrate[0];
-  accel_msg.angular.y = angrate[1];
-  accel_msg.angular.z = angrate[2];
-
-  // Publish the accelerometer data
-  rcl_publish(publisher_imu, &accel_msg, NULL);
-}
-
-/**
- * @brief Publish game rotation vector data from the specified IMU to the given publisher.
- * 
- * @param publisher_imu The publisher to which the game rotation vector data will be published.
- * @param imu The IMU sensor from which to read the game rotation vector data.
- * @param imu_index The index of the IMU in the array (default is 0). (needed for publish rate limiting)
- * 
- * This function reads the accelerometer and gyroscope data from the specified IMU,
- * fills a geometry_msgs__msg__Accel message with this data, and publishes it.
- */
-// Note: The function limits the frequency of publishing to 100Hz by checking the time since the last call.
-geometry_msgs__msg__Quaternion quat_msg;
-geometry_msgs__msg__Vector3 gyroscope_bias_msg;
-geometry_msgs__msg__Vector3 gravity_vector_msg;
-void publish_imu_game_rotation_vector_data(const rcl_publisher_t *publisher_rotation, const rcl_publisher_t *publisher_gravity, const rcl_publisher_t *publisher_gyrobias, LSM6DSV16XSensor &imu, int imu_index = 0, uint32_t publish_interval_micros = 10000) {
-  static uint32_t last_call_micros[NUM_IMU] = {0};
-  if (micros() - last_call_micros[imu_index] < publish_interval_micros) {
-    return; // Limit the frequency of publishing to a period time of publish_interval_micros
+#if USE_NEW_SENSOR_PCB
+  for (uint8_t addr = 0; addr < MAX_SENSOR_BOARDS; addr++) {
+    if (!BOARD_ENABLED[addr]) {
+      continue;
+    }
+    read_sensor_board(addr, sensor_data_msg.boards[addr]);
+    sensor_data_msg.boards_populated |= (1 << addr);
   }
-  last_call_micros[imu_index] = micros();
+#else
+  for (int i = 0; i < NUM_IMU; i++) {
+    soro_msgs__msg__SensorBoard &board = sensor_data_msg.boards[i];
+    board.status = 0;
+    board.seq = 0;
 
-  float quaternions[4] = {0};
-  float gyroscope_bias[3] = {0};
-  float gravity_vector[3] = {0};
+    int32_t accel[3] = {0};   // mg
+    int32_t angrate[3] = {0}; // mdps
+    read_imu(imus[i], accel, angrate);
+    board.imu1[0] = angrate[0] * MDPS_TO_RADPS;
+    board.imu1[1] = angrate[1] * MDPS_TO_RADPS;
+    board.imu1[2] = angrate[2] * MDPS_TO_RADPS;
+    board.imu1[3] = accel[0] * MG_TO_MPS2;
+    board.imu1[4] = accel[1] * MG_TO_MPS2;
+    board.imu1[5] = accel[2] * MG_TO_MPS2;
+    board.status |= soro_msgs__msg__SensorBoard__STATUS_IMU1_VALID;
 
-  // Read accelerometer/gyroscope data
-  read_imu_game_rotation_vector(imu, quaternions, gyroscope_bias, gravity_vector);
+    double mag_field_uT[3] = {0.0};
+    read_magnetometer(imus[i], mag_field_uT);
+    board.mag1[0] = mag_field_uT[0] * 1e-6f;
+    board.mag1[1] = mag_field_uT[1] * 1e-6f;
+    board.mag1[2] = mag_field_uT[2] * 1e-6f;
+    board.status |= soro_msgs__msg__SensorBoard__STATUS_MAG1_VALID;
 
-  // Fill the accel_msg with the data
-  quat_msg.x = quaternions[0];
-  quat_msg.y = quaternions[1];
-  quat_msg.z = quaternions[2];
-  quat_msg.w = quaternions[3];  
-  
-  gyroscope_bias_msg.x = gyroscope_bias[0];
-  gyroscope_bias_msg.y = gyroscope_bias[1];
-  gyroscope_bias_msg.z = gyroscope_bias[2]; 
-
-  gravity_vector_msg.x = gravity_vector[0];
-  gravity_vector_msg.y = gravity_vector[1];
-  gravity_vector_msg.z = gravity_vector[2];
-
-  // Publish the game rotation vector data
-  rcl_publish(publisher_rotation, &quat_msg, NULL);
-  rcl_publish(publisher_gyrobias, &gyroscope_bias_msg, NULL);
-  rcl_publish(publisher_gravity, &gravity_vector_msg, NULL);
-}
-
-/**
- * @brief Publish magnetometer data from the specified IMU (with connected slave magnetometer) to the given publisher.
- * 
- * @param publisher_imu The publisher to which the magnetometer data will be published.
- * @param imu The IMU sensor from which to read the magnetometer data.
- * @param imu_index The index of the IMU in the array (default is 0). (needed for publish rate limiting)
- * 
- * This function reads the accelerometer and gyroscope data from the specified IMU,
- * fills a geometry_msgs__msg__Accel message with this data, and publishes it.
- */
-// Note: The function limits the frequency of publishing to 100Hz by checking the time since the last call.
-geometry_msgs__msg__Vector3 mag_msg;
-void publish_magnetometer_data(const rcl_publisher_t *publisher_imu, LSM6DSV16XSensor &imu, int imu_index = 0, uint32_t publish_interval_micros = 10000) {
-  static uint32_t last_call_micros[NUM_IMU] = {0};
-  if (micros() - last_call_micros[imu_index] < publish_interval_micros) {
-    return; // Limit the frequency of publishing to a period time of publish_interval_micros
+    sensor_data_msg.boards_populated |= (1 << i);
   }
-  last_call_micros[imu_index] = micros();
+#endif
 
-  double mag_field[3] = {0.0};
-  read_magnetometer(imu, mag_field);
-
-  // geometry_msgs__msg__Vector3 mag_msg;
-
-  // Fill the mag_msg with the data
-  mag_msg.x = mag_field[0];
-  mag_msg.y = mag_field[1];
-  mag_msg.z = mag_field[2];
-
-  // Publish the magnetometer data
-  rcl_publish(publisher_imu, &mag_msg, NULL);
+  RCSOFTCHECK(rcl_publish(&publisher_sensor_data, &sensor_data_msg, NULL));
 }
 
 // Subscriber callback function
@@ -317,7 +240,10 @@ void setup() {
     motors[i].set_pulse_length(CENTER_SERVO_US);
   }
 
-  // IMU init
+  // Sensor init
+#if USE_NEW_SENSOR_PCB
+  setup_sensor_pcb_v2();
+#else
   Wire.begin();
   Wire.setClock(1000000);
 
@@ -331,7 +257,8 @@ void setup() {
     setup_LSM6DSV16X(imus[i]);
     delay(100);
   }
-  
+#endif
+
   delay(2000);
 
   allocator = rcl_get_default_allocator();
@@ -364,130 +291,12 @@ void setup() {
     "servo_pos_set",
     &qos_profile_servo_cmd));
   
-  // publishers for IMU data (acceleration + angular rate)
+  // publisher for all sensor data (see SensorArray.msg/SensorBoard.msg)
   RCCHECK(rclc_publisher_init_best_effort(
-    &publisher_IMU_1,
+    &publisher_sensor_data,
     &node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Accel),
-    "imu_data_1"));
-
-  RCCHECK(rclc_publisher_init_best_effort(
-   &publisher_IMU_2,
-   &node,
-   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Accel),
-   "imu_data_2"));
-  
-  RCCHECK(rclc_publisher_init_best_effort(
-    &publisher_IMU_3,
-    &node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Accel),
-    "imu_data_3"));
-  
-  RCCHECK(rclc_publisher_init_best_effort(
-   &publisher_IMU_4,
-   &node,
-   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Accel),
-   "imu_data_4"));
-
-  // publishers for magnetometer
-  RCCHECK(rclc_publisher_init_best_effort(
-    &publisher_mag_1,
-    &node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
-    "mag_data_1"));
-  
-  RCCHECK(rclc_publisher_init_best_effort(
-   &publisher_mag_2,
-   &node,
-   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
-   "mag_data_2"));
-  
-  RCCHECK(rclc_publisher_init_best_effort(
-    &publisher_mag_3,
-    &node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
-    "mag_data_3"));
-
-  RCCHECK(rclc_publisher_init_best_effort(
-   &publisher_mag_4,
-   &node,
-   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
-   "mag_data_4"));
-
-  // publishers for gravity vector
-  RCCHECK(rclc_publisher_init_best_effort(
-    &publisher_IMU_gravity_1,
-    &node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
-    "imu_gravity_data_1"));
-  
-  RCCHECK(rclc_publisher_init_best_effort(
-   &publisher_IMU_gravity_2,
-   &node,
-   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
-   "imu_gravity_data_2"));
-
-  RCCHECK(rclc_publisher_init_best_effort(
-    &publisher_IMU_gravity_3,
-    &node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
-    "imu_gravity_data_3"));
-  
-  RCCHECK(rclc_publisher_init_best_effort(
-   &publisher_IMU_gravity_4,
-   &node,
-   ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
-   "imu_gravity_data_4"));
-
-  // publishers for game rotation vector
-  RCCHECK(rclc_publisher_init_best_effort(
-    &publisher_IMU_rotation_1,
-    &node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Quaternion),
-    "imu_rotation_data_1"));
-  
-  RCCHECK(rclc_publisher_init_best_effort(
-    &publisher_IMU_rotation_2,
-    &node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Quaternion),
-    "imu_rotation_data_2"));
-  
-  RCCHECK(rclc_publisher_init_best_effort(
-    &publisher_IMU_rotation_3,
-    &node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Quaternion),
-    "imu_rotation_data_3"));
-
-  RCCHECK(rclc_publisher_init_best_effort(
-    &publisher_IMU_rotation_4,
-    &node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Quaternion),
-    "imu_rotation_data_4"));  
-
-  // publishers for gyroscope bias
-  RCCHECK(rclc_publisher_init_best_effort(
-    &publisher_IMU_gyrobias_1,
-    &node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
-    "imu_gyrobias_data_1"));
-  
-  RCCHECK(rclc_publisher_init_best_effort(
-    &publisher_IMU_gyrobias_2,
-    &node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
-    "imu_gyrobias_data_2")); 
-  
-  RCCHECK(rclc_publisher_init_best_effort(
-    &publisher_IMU_gyrobias_3,
-    &node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
-    "imu_gyrobias_data_3"));
-  
-  RCCHECK(rclc_publisher_init_best_effort(
-    &publisher_IMU_gyrobias_4,
-    &node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
-    "imu_gyrobias_data_4"));
+    ROSIDL_GET_MSG_TYPE_SUPPORT(soro_msgs, msg, SensorArray),
+    "sensor_data"));
 
   // Initialize subscriber on topic "subscribe_topic"
    RCCHECK(rclc_subscription_init(
@@ -517,25 +326,8 @@ void loop() {
       publish_current_servo_positions(publish_period_time_servo_set_micros);
   }
 
-  if (publish_period_time_imu_micros < 1000*1000*60) {
-    publish_accel_data(&publisher_IMU_1, imus[0], 0, publish_period_time_imu_micros);
-    publish_accel_data(&publisher_IMU_2, imus[1], 1, publish_period_time_imu_micros);
-    publish_accel_data(&publisher_IMU_3, imus[2], 2, publish_period_time_imu_micros);
-    publish_accel_data(&publisher_IMU_4, imus[3], 3, publish_period_time_imu_micros);
-  }
-
-  if (publish_period_time_imu_rotation_micros < 1000*1000*60) {
-    publish_imu_game_rotation_vector_data(&publisher_IMU_rotation_1, &publisher_IMU_gravity_1, &publisher_IMU_gyrobias_1, imus[0], 0, publish_period_time_imu_rotation_micros);
-    publish_imu_game_rotation_vector_data(&publisher_IMU_rotation_2, &publisher_IMU_gravity_2, &publisher_IMU_gyrobias_2, imus[1], 1, publish_period_time_imu_rotation_micros);
-    publish_imu_game_rotation_vector_data(&publisher_IMU_rotation_3, &publisher_IMU_gravity_3, &publisher_IMU_gyrobias_3, imus[2], 2, publish_period_time_imu_rotation_micros);
-    publish_imu_game_rotation_vector_data(&publisher_IMU_rotation_4, &publisher_IMU_gravity_4, &publisher_IMU_gyrobias_4, imus[3], 3, publish_period_time_imu_rotation_micros);
-  }
-
-  if (publish_period_time_mag_micros < 1000*1000*60) {
-    publish_magnetometer_data(&publisher_mag_1, imus[0], 0, publish_period_time_mag_micros);
-    publish_magnetometer_data(&publisher_mag_2, imus[1], 1, publish_period_time_mag_micros);
-    publish_magnetometer_data(&publisher_mag_3, imus[2], 2, publish_period_time_mag_micros);
-    publish_magnetometer_data(&publisher_mag_4, imus[3], 3, publish_period_time_mag_micros);
+  if (publish_period_time_sensor_data_micros < 1000*1000*60) {
+    publish_sensor_data(publish_period_time_sensor_data_micros);
   }
 
   // Spin executor to process incoming messages
