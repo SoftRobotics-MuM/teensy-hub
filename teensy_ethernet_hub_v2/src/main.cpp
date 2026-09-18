@@ -48,6 +48,7 @@
 #include <rcl/error_handling.h>
 #include <rclc/rclc.h>
 #include <rclc/executor.h>
+#include <rmw/qos_profiles.h>
 #include <soro_msgs/msg/servo_commands.h>
 #include "servo_control.h"
 #include "servo_cfg.h"
@@ -73,8 +74,9 @@ const uint32_t publish_period_time_imu_micros = 1000*1000*60; // period time in 
 const uint32_t publish_period_time_imu_rotation_micros = 1000*1000*60; // period time in microseconds
 const uint32_t publish_period_time_mag_micros = 1000*1000*60; // period time in microseconds
 
-// Pin configuration
-constexpr uint16_t PIN_LED = 13;
+// Note: Pin 13 (Teensy onboard LED) is also PIN_MOTOR_12's PWM output (see servo_cfg.h).
+// Do not drive it with digitalWrite() - that would fight the hardware PWM and glitch motor 12.
+// The LED simply reflects motor 12's PWM duty cycle as a side effect.
 
 // micro-ROS configuration
 rcl_publisher_t publisher;
@@ -111,6 +113,11 @@ rcl_allocator_t allocator;
 rcl_node_t node;
 rclc_executor_t executor;
 
+// QoS profile for the servo command channel (best-effort, depth 1): always act on the
+// newest command rather than draining a backlog if the PC ever publishes faster than
+// the Teensy consumes.
+rmw_qos_profile_t qos_profile_servo_cmd = rmw_qos_profile_sensor_data;
+
 // IMU
 const int NUM_IMU = 4; // Number of IMUs
 LSM6DSV16XSensor lsm6dsv16x_1(&Wire1, LSM6DSV16X_I2C_ADD_L);
@@ -130,7 +137,7 @@ void get_teensy_mac(uint8_t *mac) {
 
 void error_loop(){
   while(1){
-    digitalWrite(PIN_LED, !digitalRead(PIN_LED));
+    Serial.println("micro-ROS error: halted in error_loop()");
     delay(100);
   }
 }
@@ -303,8 +310,6 @@ void setup() {
   size_t domain_id = 72;
   set_microros_native_ethernet_transports(arduino_mac, arduino_ip, agent_ip, 8888);
 
-  pinMode(PIN_LED, OUTPUT);
-  digitalWrite(PIN_LED, HIGH);
   Serial.begin(115200); // Initialize serial output for debug
 
   // Servo init
@@ -347,14 +352,17 @@ void setup() {
   // create node
   RCCHECK(rclc_node_init_default(&node, "micro_ros_arduino_ethernet_node", "teensy_hub", &support));
 
+  qos_profile_servo_cmd.depth = 1; // keep only the latest servo command/position, never a backlog
+
   // create publishers
   // init_publishers();
   // publisher for current servo positions
-  RCCHECK(rclc_publisher_init_best_effort(
+  RCCHECK(rclc_publisher_init(
     &publisher,
     &node,
     ROSIDL_GET_MSG_TYPE_SUPPORT(soro_msgs, msg, ServoCommands),
-    "servo_pos_set"));
+    "servo_pos_set",
+    &qos_profile_servo_cmd));
   
   // publishers for IMU data (acceleration + angular rate)
   RCCHECK(rclc_publisher_init_best_effort(
@@ -482,12 +490,13 @@ void setup() {
     "imu_gyrobias_data_4"));
 
   // Initialize subscriber on topic "subscribe_topic"
-   RCCHECK(rclc_subscription_init_best_effort(
+   RCCHECK(rclc_subscription_init(
      &subscriber,
      &node,
     // ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, incoming_msg, Int32),
      ROSIDL_GET_MSG_TYPE_SUPPORT(soro_msgs, msg, ServoCommands),
-    "servo_pos"));
+    "servo_pos",
+    &qos_profile_servo_cmd));
   
   // Initialize executor with 1 handle (subscriber)
   RCCHECK(rclc_executor_init(&executor, &support.context, 1, &allocator));
@@ -530,5 +539,5 @@ void loop() {
   }
 
   // Spin executor to process incoming messages
-  rclc_executor_spin_some(&executor, RCL_MS_TO_NS(1));
+  rclc_executor_spin_some(&executor, RCL_US_TO_NS(200));
 }
