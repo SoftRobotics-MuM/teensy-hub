@@ -33,7 +33,7 @@ void ServoControl::init_servo(){
   ServoControl::max_servo_ticks = ServoControl::map_(ServoControl::max_servo_us, 0, period_time_us, 0, pow(2,ServoControl::pwm_resolution)-1);  // map from pulse width [us] to PWm ticks []
   ServoControl::center_servo_ticks = (max_servo_ticks + min_servo_ticks)/(long)2;
 
-  set_pulse_length(center_servo_ticks); // set to center position
+  set_pwm_ticks(center_servo_ticks); // set to center position (center_servo_ticks is in PWM ticks, not a pulse length)
 }
 
 bool ServoControl::set_pwm_ticks(long ticks){
@@ -54,10 +54,22 @@ bool ServoControl::set_pwm_ticks(long ticks){
   return(success);
 }
 
+long ServoControl::to_tenth_us(int pulse_length){
+  return (pulse_length < 5000) ? (long)pulse_length*10 : (long)pulse_length;
+}
+
+bool ServoControl::is_valid_pulse_length(int pulse_length){
+  const long tenth_us = to_tenth_us(pulse_length);
+  return pulse_length > 0
+      && tenth_us >= (long)min_servo_us*10
+      && tenth_us <= (long)max_servo_us*10;
+}
+
 bool ServoControl:: set_pulse_length(int pulse_length){
-  if (pulse_length < 5000){
-    pulse_length = pulse_length*10;
+  if (!is_valid_pulse_length(pulse_length)){
+    return false; // out of [min_servo_us, max_servo_us]: rejected, setpoint unchanged
   }
+  pulse_length = (int)to_tenth_us(pulse_length);
   long pwm_ticks = ServoControl::map_((long)pulse_length, 0, period_time_us*10, 0, pow(2,ServoControl::pwm_resolution)-1);
   return(this->set_pwm_ticks(pwm_ticks));
 }

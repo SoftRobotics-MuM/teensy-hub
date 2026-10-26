@@ -5,10 +5,12 @@
   <version>0.0.0</version>
   <description>soft robotics messages</description>
   <maintainer email="malte.grube@tuhh.de">malte-grube</maintainer>
-  <license>TODO: License declaration</license>
+  <license>CC-BY-NC-SA-4.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
   <buildtool_depend>rosidl_default_generators</buildtool_depend>
+
+  <depend>builtin_interfaces</depend>
 
   <exec_depend>rosidl_default_runtime</exec_depend>
   

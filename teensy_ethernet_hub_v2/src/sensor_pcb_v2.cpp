@@ -2,8 +2,12 @@
 // teensy_test_software.ino - ping/mag/IMU-relay logic, adapted from an
 // interactive serial test menu into periodic polling for read_sensor_board(),
 // and from default hardware SPI0 to SPI1 (see sensor_cfg.h).
-#include "sensor_pcb_v2.h"
 #include "sensor_cfg.h"
+
+// Only built for the new sensor-pcb-v2 hardware - see sensor_cfg.h.
+#if USE_NEW_SENSOR_PCB
+
+#include "sensor_pcb_v2.h"
 #include "Protocol.h"
 #include "Lsm6dsv16bx.h"
 #include <Arduino.h>
@@ -176,3 +180,5 @@ void read_sensor_board(uint8_t targetAddr, soro_msgs__msg__SensorBoard &board) {
         board.status |= soro_msgs__msg__SensorBoard__STATUS_MAG2_VALID;
     }
 }
+
+#endif // USE_NEW_SENSOR_PCB

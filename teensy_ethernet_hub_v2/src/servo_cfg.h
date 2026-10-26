@@ -1,3 +1,6 @@
+#ifndef servo_cfg_h
+#define servo_cfg_h
+
 #include "servo_control.h"
 #include "Arduino.h"
 // pins
@@ -19,10 +22,11 @@ constexpr uint16_t MIN_SERVO_US = 900;
 constexpr uint16_t MAX_SERVO_US = 2100;
 constexpr uint16_t CENTER_SERVO_US = 1500;
 constexpr uint16_t PWM_RESOLUTION = 15;
-constexpr uint16_t PWM_FREQUENCY = 50;
+constexpr uint16_t PWM_FREQUENCY = 300; // pwm frequecy [Hz] can be set to 300 for Chaservo DS20; Other servos can get destroyed by values other than 50
 constexpr uint8_t NUM_MOTORS = 12;
 
 // servo objects
+// Note: defined (not just declared) here - include this header from main.cpp only.
 ServoControl motors[NUM_MOTORS] = {
   ServoControl(PIN_MOTOR_1, MIN_SERVO_US, MAX_SERVO_US, PWM_RESOLUTION, PWM_FREQUENCY),
   ServoControl(PIN_MOTOR_2, MIN_SERVO_US, MAX_SERVO_US, PWM_RESOLUTION, PWM_FREQUENCY),
@@ -37,3 +41,5 @@ ServoControl motors[NUM_MOTORS] = {
   ServoControl(PIN_MOTOR_11, MIN_SERVO_US, MAX_SERVO_US, PWM_RESOLUTION, PWM_FREQUENCY),
   ServoControl(PIN_MOTOR_12, MIN_SERVO_US, MAX_SERVO_US, PWM_RESOLUTION, PWM_FREQUENCY),
 };
+
+#endif // servo_cfg_h

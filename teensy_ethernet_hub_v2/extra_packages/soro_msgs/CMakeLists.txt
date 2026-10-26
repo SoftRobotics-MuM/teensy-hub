@@ -8,6 +8,7 @@ endif()
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
+find_package(builtin_interfaces REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
@@ -16,7 +17,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ServoCommands.msg"
   "msg/SensorBoard.msg"
   "msg/SensorArray.msg"
-  DEPENDENCIES # Add packages that above messages depend on, in this case geometry_msgs for Sphere.msg
+  DEPENDENCIES builtin_interfaces
 )
 
 if(BUILD_TESTING)

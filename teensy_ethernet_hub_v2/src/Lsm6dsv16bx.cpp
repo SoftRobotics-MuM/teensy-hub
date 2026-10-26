@@ -1,5 +1,9 @@
-#include "Lsm6dsv16bx.h"
 #include "sensor_cfg.h"
+
+// Only built for the new sensor-pcb-v2 hardware - see sensor_cfg.h.
+#if USE_NEW_SENSOR_PCB
+
+#include "Lsm6dsv16bx.h"
 #include <string.h>
 
 namespace Lsm6dsv16bx {
@@ -91,3 +95,5 @@ void readData(SelectFn select, void *ctx, Raw &out) {
 }
 
 }  // namespace Lsm6dsv16bx
+
+#endif // USE_NEW_SENSOR_PCB

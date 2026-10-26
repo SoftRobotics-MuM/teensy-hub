@@ -9,7 +9,8 @@ class ServoControl{
   ServoControl(uint8_t servo_pin, int min_servo_us, int max_servo_us, int pwm_resolution, int pwm_frequency);
 
   bool set_pwm_ticks(long ticks);  // pwm ticks 
-  bool set_pulse_length(int pulse_length);  // pulse length [us] or [1e-7s]; unit is automatically detected from value range: <5000 -> [us]; >=5000 -> [1e-7s]
+  bool set_pulse_length(int pulse_length);  // pulse length [us] or [1e-7s]; unit is automatically detected from value range: <5000 -> [us]; >=5000 -> [1e-7s]. Out-of-range values are rejected (returns false, setpoint unchanged).
+  bool is_valid_pulse_length(int pulse_length);  // true if pulse_length (same units as set_pulse_length) lies within [min_servo_us, max_servo_us]
   
   // getter
   int get_min_servo_us() {return min_servo_us;}
@@ -27,6 +28,7 @@ class ServoControl{
 
   private:
   void init_servo();
+  long to_tenth_us(int pulse_length);  // [us] or [1e-7s] (see set_pulse_length) -> [1e-7s]
   long map_(long _x, long _in_min, long _in_max, long _out_min, long _out_max);
 
   int min_servo_us = 900;

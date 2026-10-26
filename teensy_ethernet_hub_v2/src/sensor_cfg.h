@@ -10,7 +10,7 @@
 //   1 = new hardware: sensor-pcb-v2, up to 8 boards sharing one SPI bus,
 //       each board carrying 2x LSM6DSV16BX + 2x MMC5633NJL relayed through
 //       an STM32 (sensor_pcb_v2.cpp/.h, Lsm6dsv16bx.cpp/.h)
-#define USE_NEW_SENSOR_PCB 1
+#define USE_NEW_SENSOR_PCB 0
 
 #if USE_NEW_SENSOR_PCB
 
@@ -57,6 +57,28 @@ constexpr bool BOARD_ENABLED[MAX_SENSOR_BOARDS] = {
 };
 
 #endif // USE_NEW_SENSOR_PCB
+
+#if !USE_NEW_SENSOR_PCB
+// I2C clock of Wire1/Wire2 (IMUs). The MMC5603 sits on each IMU's auxiliary
+// bus and is only reachable through the IMU's sensor hub (no pass-through on
+// this PCB).
+constexpr uint32_t IMU_I2C_CLOCK_HZ = 1000000;
+
+// --- MMC5603 boot-time SET/RESET offset (old hardware) ----------------------
+// At startup every site measures its magnetometer's own zero-field offset
+// with SET/RESET pairs (one-shot sensor-hub transactions, before continuous
+// mode starts): offset = (M_set + M_reset) / 2. ~60 ms per pair and site.
+#define MAG_SETRESET_PAIRS 8
+// 1: subtract that offset from every magnetometer reading (mag1).
+// 0: only measure and report it (Serial at boot / on agent connect, and in
+//    SensorBoard.mag2 if MAG_PUBLISH_SETRESET_OFFSET) - for checking whether
+//    the offset is significant and stable across power cycles first.
+#define MAG_SUBTRACT_SETRESET_OFFSET 1
+// 1: publish the measured offset [T] in SensorBoard.mag2 (unused on the old
+//    hardware). STATUS_MAG2_VALID stays clear, so consumers that check the
+//    status bits ignore it; it is recorded in every bag.
+#define MAG_PUBLISH_SETRESET_OFFSET 1
+#endif
 
 // --- Physical-unit conversion (shared by both hardware generations) --------
 // Kept on the Teensy, in one place, deliberately: sensor settings (ODR, full
